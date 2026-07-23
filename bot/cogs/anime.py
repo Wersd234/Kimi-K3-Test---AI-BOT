@@ -2,7 +2,7 @@
 
 功能：
 - /anime   动漫百科查询（海报、评分、简介、声优）  [🌐]
-- /season  季度新番速览                            [🌐]
+- /season  季度新番速览（翻页：周一到周日）        [🌐]
 - /recommend AI 漫荒推荐（读取私密追番列表分析口味）[🔒]
 """
 
@@ -12,6 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from bot.ui.views import SeasonPaginationView
 from bot.utils import embeds
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class AnimeCog(commands.Cog, name="Anime"):
         await interaction.response.defer()
 
         try:
-            bangumi = self.bot.services.bangumi_service  # 使用 Bangumi
+            bangumi = self.bot.services.bangumi_service
             anime = await bangumi.search_anime(title)
 
             if not anime:
@@ -48,21 +49,24 @@ class AnimeCog(commands.Cog, name="Anime"):
             logger.error("动漫查询失败: %s", exc)
             await interaction.followup.send("查询失败，请稍后再试...")
 
-    @app_commands.command(name="season", description="查看当前季度热门新番")
+    @app_commands.command(name="season", description="查看当前季度热门新番（翻页）")
     async def season(self, interaction: discord.Interaction) -> None:
-        """季度新番速览 [🌐 公开]。"""
+        """季度新番速览（翻页：周一到周日）[🌐 公开]。"""
         await interaction.response.defer()
 
         try:
-            bangumi = self.bot.services.bangumi_service  # 使用 Bangumi
-            animes = await bangumi.get_current_season(page=1)
+            bangumi = self.bot.services.bangumi_service
+            animes_by_day = await bangumi.get_current_season_by_day()
 
-            if not animes:
+            if not animes_by_day:
                 await interaction.followup.send("抱歉，获取新番列表失败...")
                 return
 
-            embed = embeds.render_season_list(animes)
-            await interaction.followup.send(embed=embed)
+            # 创建翻页视图
+            view = SeasonPaginationView(animes_by_day)
+            embed = view._render_page()  # 渲染第一页（周一）
+
+            await interaction.followup.send(embed=embed, view=view)
 
         except Exception as exc:
             logger.error("季度新番查询失败: %s", exc)

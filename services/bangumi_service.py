@@ -2,7 +2,7 @@
 
 提供：
 - 动漫百科查询（中文标题、简介、角色）
-- 季度新番列表
+- 季度新番列表（按星期几分组）
 - 严格遵循 Bangumi API Header 要求
 
 API 文档：https://bangumi.github.io/api/
@@ -94,63 +94,43 @@ class BangumiService:
             logger.error("Bangumi 查询失败: %s", exc)
             return None
 
-    async def get_current_season(self, page: int = 1) -> list[dict]:
-        """获取当前季度热门新番列表。
-
-        Args:
-            page: 分页页码。
+    async def get_current_season_by_day(self) -> dict[int, list[dict]]:
+        """获取当前季度新番，按星期几分组。
 
         Returns:
-            新番信息 dict 列表。
+            按星期几分组的新番 dict {0: [...], 1: [...], ..., 6: [...]}
+            0=周一, 6=周日
         """
         try:
-            from datetime import datetime
-
-            now = datetime.now()
-            year = now.year
-            month = now.month
-
-            # 计算当前季度
-            if 1 <= month <= 3:
-                season = "winter"
-            elif 4 <= month <= 6:
-                season = "spring"
-            elif 7 <= month <= 9:
-                season = "summer"
-            else:
-                season = "fall"
-
             # Bangumi 每日放送（按星期几分类）
-            # 这里简化处理：直接获取热门动画
-            result = await self._request(
-                "/calendar",
-            )
+            result = await self._request("/calendar")
 
             if not result:
                 logger.warning("Bangumi 季度查询无结果")
-                return []
+                return {}
 
-            # 提取所有番剧
-            all_animes = []
-            for day in result:
-                if "items" in day:
-                    all_animes.extend(day["items"])
+            # 按星期几分组
+            animes_by_day = {}
+            for day_data in result:
+                weekday = day_data.get("weekday", {}).get("id", 0) - 1  # Bangumi weekday id 从 1 开始
+                if 0 <= weekday <= 6:
+                    items = day_data.get("items", [])
+                    # 按评分排序，取 top 10
+                    sorted_items = sorted(
+                        items,
+                        key=lambda x: x.get("rating", {}).get("score", 0),
+                        reverse=True,
+                    )[:10]
+                    animes_by_day[weekday] = [
+                        self._normalize_anime(anime) for anime in sorted_items
+                    ]
 
-            # 按评分排序，取前 20
-            sorted_animes = sorted(
-                all_animes,
-                key=lambda x: x.get("rating", {}).get("score", 0),
-                reverse=True,
-            )[:20]
-
-            logger.info("Bangumi 季度查询成功: %d 部新番", len(sorted_animes))
-
-            # 转换为统一格式
-            return [self._normalize_anime(anime) for anime in sorted_animes]
+            logger.info("Bangumi 季度查询成功: %d 天有新番", len(animes_by_day))
+            return animes_by_day
 
         except Exception as exc:
             logger.error("Bangumi 季度查询失败: %s", exc)
-            return []
+            return {}
 
     def _normalize_anime(self, anime: dict) -> dict:
         """将 Bangumi 数据格式转换为统一格式（与 AniList 兼容）。
@@ -197,6 +177,9 @@ class BangumiService:
                 if char_name:
                     characters.append({"name": {"full": char_name}})
 
+        # 更新时间（如果有）
+        air_time = anime.get("air_time", "未知时间")
+
         return {
             "title": {
                 "romaji": title_jp,
@@ -209,4 +192,5 @@ class BangumiService:
             "episodes": eps,
             "status": status_text,
             "characters": {"nodes": characters},
+            "air_time": air_time,  # 更新时间
         }
