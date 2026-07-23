@@ -2,9 +2,8 @@
 
 提供：
 - 动漫百科查询（中文标题、简介、角色）
-- 季度新番列表（按星期几分组）
+- 季度新番列表（按星期几分组，使用 AniList 播出时间）
 - 严格遵循 Bangumi API Header 要求
-- 结合 AniList API 获取实际播出时间
 
 API 文档：https://bangumi.github.io/api/
 """
@@ -93,10 +92,10 @@ class BangumiService:
             # 转换为统一格式
             normalized = self._normalize_anime(anime)
 
-            # 使用 AniList 获取实际播出时间
-            title_cn = anime.get("name_cn", anime.get("name", ""))
-            if title_cn:
-                airing_time = await self._anilist.get_anime_airing_time(title_cn)
+            # 使用 AniList 获取实际播出时间（用日文标题）
+            title_jp = anime.get("name", "")
+            if title_jp:
+                airing_time = await self._anilist.get_anime_airing_time(title_jp)
                 if airing_time:
                     normalized["air_time"] = airing_time
 
@@ -107,52 +106,14 @@ class BangumiService:
             return None
 
     async def get_current_season_by_day(self) -> dict[int, list[dict]]:
-        """获取当前季度新番，按星期几分组。
+        """获取当前季度新番，按星期几分组（使用 AniList 播出时间）。
 
         Returns:
             按星期几分组的新番 dict {0: [...], 1: [...], ..., 6: [...]}
             0=周一, 6=周日
         """
-        try:
-            # Bangumi 每日放送（按星期几分类）
-            result = await self._request("/calendar")
-
-            if not result:
-                logger.warning("Bangumi 季度查询无结果")
-                return {}
-
-            # 按星期几分组
-            animes_by_day = {}
-            for day_data in result:
-                weekday = day_data.get("weekday", {}).get("id", 0) - 1  # Bangumi weekday id 从 1 开始
-                if 0 <= weekday <= 6:
-                    items = day_data.get("items", [])
-                    # 按评分排序，取 top 10
-                    sorted_items = sorted(
-                        items,
-                        key=lambda x: x.get("rating", {}).get("score", 0),
-                        reverse=True,
-                    )[:10]
-                    animes_by_day[weekday] = []
-
-                    for anime in sorted_items:
-                        normalized = self._normalize_anime(anime)
-
-                        # 使用 AniList 获取实际播出时间
-                        title_cn = anime.get("name_cn", anime.get("name", ""))
-                        if title_cn:
-                            airing_time = await self._anilist.get_anime_airing_time(title_cn)
-                            if airing_time:
-                                normalized["air_time"] = airing_time
-
-                        animes_by_day[weekday].append(normalized)
-
-            logger.info("Bangumi 季度查询成功: %d 天有新番", len(animes_by_day))
-            return animes_by_day
-
-        except Exception as exc:
-            logger.error("Bangumi 季度查询失败: %s", exc)
-            return {}
+        # 直接使用 AniList 的播出时间表（避免 Bangumi 无时间数据）
+        return await self._anilist.get_weekly_airing_schedule()
 
     def _normalize_anime(self, anime: dict) -> dict:
         """将 Bangumi 数据格式转换为统一格式（与 AniList 兼容）。
@@ -173,7 +134,6 @@ class BangumiService:
         # 评分
         rating = anime.get("rating", {})
         score = rating.get("score", 0)
-        score_text = f"⭐ {score}/10" if score else "暂无评分"
 
         # 集数
         eps = anime.get("eps", "?")
