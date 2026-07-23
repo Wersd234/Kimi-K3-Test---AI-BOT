@@ -1,9 +1,9 @@
-"""Bangumi API 封装（中文动漫数据的唯一来源）。
+"""Bangumi API 封装（中文动漫内容的唯一来源）。
 
-提供：
-- 动漫百科查询（中文标题、简介、角色）
-- 季度新番列表（按星期几分组，使用 AniList 播出时间）
-- 严格遵循 Bangumi API Header 要求
+设计说明：
+- Bangumi 提供中文标题、中文简介、中文角色。
+- AniList 提供精确播出时间（批量一次请求，避免限流）。
+- 两者结合：Bangumi 负责内容，AniList 负责时间。
 
 API 文档：https://bangumi.github.io/api/
 """
@@ -106,14 +106,59 @@ class BangumiService:
             return None
 
     async def get_current_season_by_day(self) -> dict[int, list[dict]]:
-        """获取当前季度新番，按星期几分组（使用 AniList 播出时间）。
+        """获取当前季度新番，按星期几分组（Bangumi 内容 + AniList 时间）。
 
         Returns:
             按星期几分组的新番 dict {0: [...], 1: [...], ..., 6: [...]}
             0=周一, 6=周日
         """
-        # 直接使用 AniList 的播出时间表（避免 Bangumi 无时间数据）
-        return await self._anilist.get_weekly_airing_schedule()
+        try:
+            # 1. 先获取 AniList 的整周播出时间表（批量，避免限流）
+            anilist_schedule = await self._anilist.get_weekly_airing_schedule()
+
+            # 2. 获取 Bangumi 的每日放送（中文内容）
+            bangumi_result = await self._request("/calendar")
+
+            if not bangumi_result:
+                logger.warning("Bangumi 季度查询无结果，使用纯 AniList 数据")
+                return anilist_schedule
+
+            # 3. 合并：Bangumi 内容 + AniList 时间
+            animes_by_day = {}
+            for day_data in bangumi_result:
+                weekday = day_data.get("weekday", {}).get("id", 0) - 1  # Bangumi weekday id 从 1 开始
+                if 0 <= weekday <= 6:
+                    items = day_data.get("items", [])
+                    # 按评分排序，取 top 10
+                    sorted_items = sorted(
+                        items,
+                        key=lambda x: x.get("rating", {}).get("score", 0),
+                        reverse=True,
+                    )[:10]
+
+                    animes_by_day[weekday] = []
+                    for anime in sorted_items:
+                        normalized = self._normalize_anime(anime)
+
+                        # 尝试从 AniList 匹配播出时间（用日文标题匹配）
+                        title_jp = anime.get("name", "")
+                        if title_jp and weekday in anilist_schedule:
+                            for anilist_anime in anilist_schedule[weekday]:
+                                anilist_title = anilist_anime.get("title", {})
+                                if (anilist_title.get("romaji") == title_jp or
+                                    anilist_title.get("native") == title_jp):
+                                    normalized["air_time"] = anilist_anime.get("air_time", "未知时间")
+                                    break
+
+                        animes_by_day[weekday].append(normalized)
+
+            logger.info("Bangumi + AniList 季度查询成功: %d 天有新番", len(animes_by_day))
+            return animes_by_day
+
+        except Exception as exc:
+            logger.error("Bangumi 季度查询失败: %s", exc)
+            # 失败时回退到纯 AniList 数据
+            return await self._anilist.get_weekly_airing_schedule()
 
     def _normalize_anime(self, anime: dict) -> dict:
         """将 Bangumi 数据格式转换为统一格式（与 AniList 兼容）。

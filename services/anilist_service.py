@@ -1,24 +1,15 @@
-"""AniList GraphQL API 封装（播出时间表的唯一来源）。
+"""AniList GraphQL API 封装（播出时间表的批量来源）。
 
 设计说明：
 - 使用 airingSchedule 端点一次性批量获取整周播出表，
   避免逐部查询导致的 404 和 429 限流问题。
-- AniList 的 title.native 通常是日文，title.romaji 是罗马音；
-  中文标题需结合 Bangumi 或用户自定义映射。
-  但 AniList 的 title.userPreferred 可能返回英文，
-  因此我们优先使用 native（日文）作为后备，
-  并尽量从 Bangumi 获取中文名。
-  然而 Bangumi /calendar 不提供播出时间，
-  所以本服务负责提供时间，Bangumi 负责提供中文名。
+- 本服务只负责提供「播出时间」，中文内容仍由 Bangumi 提供。
 
-  为了简化并避免限流，当前策略：
-  - 播出时间：完全使用 AniList airingSchedule
-  - 中文标题：尝试使用 Bangumi 搜索补全（可选，带缓存）
+API 文档：https://anilist.gitbook.io/anilist-apiv2-docs/
 """
 
 import logging
-import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
@@ -70,9 +61,7 @@ class AniListService:
                 return result["data"]
 
     async def get_weekly_airing_schedule(self) -> dict[int, list[dict]]:
-        """获取本周播出时间表，按星期几分组。
-
-        一次请求获取整周数据，避免限流。
+        """获取本周播出时间表，按星期几分组（批量，避免限流）。
 
         Returns:
             按星期几分组的新番 dict {0: [...], 1: [...], ..., 6: [...]}
@@ -80,12 +69,10 @@ class AniListService:
         """
         # 计算本周一和下周日的时间范围
         now = datetime.now(timezone.utc)
-        # 找到本周一（周一为一周的开始）
-        monday = now - __import__("datetime").timedelta(days=now.weekday())
+        monday = now - timedelta(days=now.weekday())
         monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
-        sunday = monday + __import__("datetime").timedelta(days=6, hours=23, minutes=59, seconds=59)
+        sunday = monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
-        # GraphQL 查询：airingSchedule
         query = """
         query ($start: Int, $end: Int) {
           Page(perPage: 500) {
@@ -139,7 +126,7 @@ class AniListService:
                 if not media:
                     continue
 
-                # 去重：同一部番同一天可能出现多次（不同集数）
+                # 去重：同一部番同一天只保留最早的一集
                 media_id = media.get("id")
                 if any(m.get("id") == media_id for m in result[weekday]):
                     continue
@@ -152,7 +139,6 @@ class AniListService:
 
                 # 评分
                 score = media.get("averageScore")
-                score_val = score if score else None
 
                 # 简介
                 description = media.get("description", "暂无简介")
@@ -177,8 +163,6 @@ class AniListService:
 
                 # 格式化播出时间
                 air_time_str = dt.strftime("%Y-%m-%d %H:%M")
-                # 显示用简短格式（只保留时分）
-                air_time_short = dt.strftime("%H:%M")
 
                 anime_dict = {
                     "id": media_id,
@@ -188,12 +172,11 @@ class AniListService:
                         "native": native_title or romaji_title or english_title,
                     },
                     "coverImage": {"large": cover_url},
-                    "averageScore": score_val,
+                    "averageScore": score,
                     "description": description,
                     "episodes": episodes,
                     "status": status_text,
                     "air_time": air_time_str,
-                    "air_time_short": air_time_short,
                     "episode": item.get("episode", "?"),
                     "characters": {"nodes": []},  # AniList 此端点不含角色
                 }
