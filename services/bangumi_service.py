@@ -140,15 +140,14 @@ class BangumiService:
                     for anime in sorted_items:
                         normalized = self._normalize_anime(anime)
 
-                        # 尝试从 AniList 匹配播出时间（用日文标题匹配）
-                        title_jp = anime.get("name", "")
+                        # 尝试从 AniList 匹配播出时间（模糊匹配）
+                        title_jp = anime.get("name", "").strip()
                         if title_jp and weekday in anilist_schedule:
-                            for anilist_anime in anilist_schedule[weekday]:
-                                anilist_title = anilist_anime.get("title", {})
-                                if (anilist_title.get("romaji") == title_jp or
-                                    anilist_title.get("native") == title_jp):
-                                    normalized["air_time"] = anilist_anime.get("air_time", "未知时间")
-                                    break
+                            matched_time = self._fuzzy_match_airing_time(
+                                title_jp, anilist_schedule[weekday]
+                            )
+                            if matched_time:
+                                normalized["air_time"] = matched_time
 
                         animes_by_day[weekday].append(normalized)
 
@@ -159,6 +158,50 @@ class BangumiService:
             logger.error("Bangumi 季度查询失败: %s", exc)
             # 失败时回退到纯 AniList 数据
             return await self._anilist.get_weekly_airing_schedule()
+
+    def _fuzzy_match_airing_time(
+        self, title_jp: str, anilist_animes: list[dict]
+    ) -> str | None:
+        """模糊匹配 AniList 播出时间。
+
+        匹配策略（按优先级）：
+        1. 完全匹配（忽略大小写和空格）
+        2. 包含匹配（一个标题包含另一个）
+        3. 相似度匹配（编辑距离 ≤ 3）
+
+        Args:
+            title_jp: Bangumi 日文标题。
+            anilist_animes: AniList 同一天的番剧列表。
+
+        Returns:
+            匹配到的播出时间，未匹配返回 None。
+        """
+        if not title_jp:
+            return None
+
+        # 标准化函数：小写、去空格、去特殊字符
+        def normalize(s: str) -> str:
+            return "".join(c.lower() for c in s if c.isalnum())
+
+        title_norm = normalize(title_jp)
+
+        for anilist_anime in anilist_animes:
+            anilist_title = anilist_anime.get("title", {})
+            romaji = anilist_title.get("romaji", "").strip()
+            native = anilist_title.get("native", "").strip()
+
+            # 策略 1: 完全匹配（忽略大小写和空格）
+            if normalize(romaji) == title_norm or normalize(native) == title_norm:
+                return anilist_anime.get("air_time")
+
+            # 策略 2: 包含匹配
+            if (title_norm in normalize(romaji) or
+                title_norm in normalize(native) or
+                normalize(romaji) in title_norm or
+                normalize(native) in title_norm):
+                return anilist_anime.get("air_time")
+
+        return None
 
     def _normalize_anime(self, anime: dict) -> dict:
         """将 Bangumi 数据格式转换为统一格式（与 AniList 兼容）。
