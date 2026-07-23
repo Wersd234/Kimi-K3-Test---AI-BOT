@@ -1,8 +1,6 @@
 """watchlist 表仓储：私人追番列表。
 
-GRASP 原则：
-- Information Expert: 本类拥有 watchlist 表的全部知识
-- Single Responsibility: 只负责 watchlist 表的 CRUD
+所有方法为类方法（@classmethod），无需实例化即可调用。
 """
 
 from repositories.base import BaseRepository
@@ -11,13 +9,11 @@ from repositories.base import BaseRepository
 class WatchlistRepository(BaseRepository):
     """封装 watchlist 表的全部 SQL 操作。"""
 
+    @classmethod
     async def add(
-        self,
-        user_id: int,
-        anime_id: int,
-        anime_title: str,
+        cls, user_id: int, anime_id: int, anime_title: str
     ) -> bool:
-        """加入追番列表，已存在则忽略。
+        """加入追番列表。
 
         Args:
             user_id: Discord 用户 ID。
@@ -25,19 +21,22 @@ class WatchlistRepository(BaseRepository):
             anime_title: 番剧标题（冗余存储，减少 API 调用）。
 
         Returns:
-            True 表示新加入，False 表示已存在。
+            True 表示新添加，False 表示已存在（UNIQUE 约束忽略）。
         """
-        cursor = await self._db.execute(
+        db = cls.get_db()
+        cursor = await db.execute(
             """
-            INSERT OR IGNORE INTO watchlist (user_id, anime_id, anime_title)
+            INSERT OR IGNORE INTO watchlist
+                (user_id, anime_id, anime_title)
             VALUES (?, ?, ?)
             """,
             (user_id, anime_id, anime_title),
         )
-        await self._db.commit()
+        await db.commit()
         return cursor.rowcount > 0
 
-    async def remove(self, user_id: int, anime_id: int) -> bool:
+    @classmethod
+    async def remove(cls, user_id: int, anime_id: int) -> bool:
         """从追番列表移除。
 
         Args:
@@ -45,30 +44,33 @@ class WatchlistRepository(BaseRepository):
             anime_id: AniList 媒体 ID。
 
         Returns:
-            True 表示移除成功，False 表示本就不在列表中。
+            True 表示删除成功，False 表示未找到。
         """
-        cursor = await self._db.execute(
+        db = cls.get_db()
+        cursor = await db.execute(
             """
             DELETE FROM watchlist
             WHERE user_id = ? AND anime_id = ?
             """,
             (user_id, anime_id),
         )
-        await self._db.commit()
+        await db.commit()
         return cursor.rowcount > 0
 
-    async def list_by_user(self, user_id: int) -> list[dict]:
+    @classmethod
+    async def list_by_user(cls, user_id: int) -> list[dict]:
         """读取用户的完整追番列表。
 
         Args:
             user_id: Discord 用户 ID。
 
         Returns:
-            追番列表，每项包含 anime_id, anime_title, added_at。
+            [{"anime_id": 1, "anime_title": "...", "last_notified_episode": 12, ...}, ...]
         """
-        cursor = await self._db.execute(
+        db = cls.get_db()
+        cursor = await db.execute(
             """
-            SELECT anime_id, anime_title, added_at
+            SELECT anime_id, anime_title, last_notified_episode, added_at
             FROM watchlist
             WHERE user_id = ?
             ORDER BY added_at DESC
@@ -78,34 +80,105 @@ class WatchlistRepository(BaseRepository):
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-    async def list_distinct_anime(self) -> list[int]:
-        """返回全库所有被追踪的 anime_id。
+    @classmethod
+    async def list_all_anime_ids(cls) -> list[int]:
+        """全库去重的被追踪番剧 ID（供更新轮询批量查询）。
 
         Returns:
-            去重后的 anime_id 列表。
-
-        设计说明：
-            轮询更新时只需查询每个唯一的 anime_id，
-            避免重复调用 AniList API。
+            [1, 2, 3, ...]
         """
-        cursor = await self._db.execute(
-            "SELECT DISTINCT anime_id FROM watchlist",
+        db = cls.get_db()
+        cursor = await db.execute(
+            "SELECT DISTINCT anime_id FROM watchlist"
         )
         rows = await cursor.fetchall()
         return [row["anime_id"] for row in rows]
 
-    async def list_users_by_anime(self, anime_id: int) -> list[int]:
-        """返回追踪了某部番剧的全部用户。
+    @classmethod
+    async def list_users_tracking(cls, anime_id: int) -> list[int]:
+        """查出追踪某部番的所有用户（新集数发布时要 Ping 的人）。
 
         Args:
             anime_id: AniList 媒体 ID。
 
         Returns:
-            用户 ID 列表，用于定向 Ping 提醒。
+            [user_id1, user_id2, ...]
         """
-        cursor = await self._db.execute(
-            "SELECT user_id FROM watchlist WHERE anime_id = ?",
+        db = cls.get_db()
+        cursor = await db.execute(
+            """
+            SELECT user_id FROM watchlist
+            WHERE anime_id = ?
+            """,
             (anime_id,),
         )
         rows = await cursor.fetchall()
         return [row["user_id"] for row in rows]
+
+    @classmethod
+    async def get_last_notified_episode(
+        cls, user_id: int, anime_id: int
+    ) -> int | None:
+        """读取某用户对某番上次已提醒的集数。
+
+        Args:
+            user_id: Discord 用户 ID。
+            anime_id: AniList 媒体 ID。
+
+        Returns:
+            集数，或 None（从未提醒）。
+        """
+        db = cls.get_db()
+        cursor = await db.execute(
+            """
+            SELECT last_notified_episode FROM watchlist
+            WHERE user_id = ? AND anime_id = ?
+            """,
+            (user_id, anime_id),
+        )
+        row = await cursor.fetchone()
+        return row["last_notified_episode"] if row else None
+
+    @classmethod
+    async def set_last_notified_episode(
+        cls, user_id: int, anime_id: int, episode: int
+    ) -> None:
+        """更新已提醒集数（防止重复 Ping）。
+
+        Args:
+            user_id: Discord 用户 ID。
+            anime_id: AniList 媒体 ID。
+            episode: 最新已提醒的集数。
+        """
+        db = cls.get_db()
+        await db.execute(
+            """
+            UPDATE watchlist
+            SET last_notified_episode = ?
+            WHERE user_id = ? AND anime_id = ?
+            """,
+            (episode, user_id, anime_id),
+        )
+        await db.commit()
+
+    @classmethod
+    async def is_tracking(cls, user_id: int, anime_id: int) -> bool:
+        """检查用户是否已追踪某部番。
+
+        Args:
+            user_id: Discord 用户 ID。
+            anime_id: AniList 媒体 ID。
+
+        Returns:
+            True 表示已追踪，False 表示未追踪。
+        """
+        db = cls.get_db()
+        cursor = await db.execute(
+            """
+            SELECT 1 FROM watchlist
+            WHERE user_id = ? AND anime_id = ?
+            LIMIT 1
+            """,
+            (user_id, anime_id),
+        )
+        return await cursor.fetchone() is not None
