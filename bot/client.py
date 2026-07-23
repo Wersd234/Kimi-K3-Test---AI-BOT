@@ -1,7 +1,7 @@
 """Discord Bot 客户端定义（Factory Method + 依赖注入）。
 
 职责：
-- 接收组合根注入的 Config（显式依赖，不读全局状态）
+- 接收组合根注入的 Config 和 Services（显式依赖，不读全局状态）
 - 加载所有 Cogs（指令模块）
 - 同步斜杠指令树
 - 不包含任何 AI / 数据库业务逻辑
@@ -28,17 +28,24 @@ COGS = [
 class ButlerBot(commands.Bot):
     """二次元私人管家 Bot 客户端。"""
 
-    def __init__(self, config: Config) -> None:
-        """注入配置并声明所需 Intents。
+    def __init__(self, config: Config, services: "Services") -> None:
+        """注入配置和服务。
 
         Args:
             config: 全局配置（用于读取 dev_guild_id 等）。
+            services: 服务容器（AIClient / AniListService / 等）。
         """
         intents = discord.Intents.default()
         intents.message_content = True  # 读取消息内容以响应 @ 对话
         intents.members = True          # 感知在线状态（护肝提醒）
         super().__init__(command_prefix="!", intents=intents)
         self._config = config
+        self._services = services
+
+    @property
+    def services(self) -> "Services":
+        """服务容器（供 Cog 访问）。"""
+        return self._services
 
     async def setup_hook(self) -> None:
         """启动钩子：加载 Cogs 并同步指令树。"""
@@ -61,10 +68,11 @@ class ButlerBot(commands.Bot):
         logger.info("✅ 已登录：%s (ID: %s)", self.user, self.user.id)
 
 
-def create_bot(config: Config) -> ButlerBot:
+def create_bot(config: Config, services: "Services") -> ButlerBot:
     """工厂方法：创建并返回 Bot 实例。
 
     Args:
         config: 由组合根注入的全局配置。
+        services: 由组合根注入的服务容器。
     """
-    return ButlerBot(config)
+    return ButlerBot(config, services)
