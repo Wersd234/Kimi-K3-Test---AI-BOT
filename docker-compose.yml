@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   butler-bot:
     build: .
@@ -9,8 +11,13 @@ services:
       # 时区强一致性：定时任务 / 日历提醒均以此为准
       TZ: ${TZ:-Australia/Sydney}
     volumes:
-      # 数据持久化：SQLite 数据库落盘到宿主机 ./data
-      - ./data:/app/bot_data
+      # 数据持久化：使用命名卷（Portainer 管理）
+      - butler-data:/app/bot_data
     extra_hosts:
       # 让容器可以访问宿主机上运行的 LM Studio / Ollama
       - "host.docker.internal:host-gateway"
+
+volumes:
+  butler-data:
+    # Portainer 会自动创建和管理此卷
+    # 数据位置：/var/lib/docker/volumes/anime-butler-bot_butler-data/_data
