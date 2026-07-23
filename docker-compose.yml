@@ -5,11 +5,25 @@ services:
     build: .
     container_name: anime-butler-bot
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
-      # 时区强一致性：定时任务 / 日历提醒均以此为准
+      # Discord Bot
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DEV_GUILD_ID: ${DEV_GUILD_ID:-}
+
+      # AI 推理后端（宿主机 LM Studio / Ollama）
+      AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:1234/v1}
+      AI_MODEL: ${AI_MODEL:-google/gemma-4}
+      AI_API_KEY: ${AI_API_KEY:-not-needed-for-local}
+
+      # 第三方 API
+      ANILIST_API_URL: ${ANILIST_API_URL:-https://graphql.anilist.co}
+      WEATHER_API_URL: ${WEATHER_API_URL:-https://api.open-meteo.com/v1/forecast}
+      WEATHER_LAT: ${WEATHER_LAT:--33.8688}
+      WEATHER_LON: ${WEATHER_LON:-151.2093}
+
+      # 运行环境
       TZ: ${TZ:-Australia/Sydney}
+      DATABASE_PATH: ${DATABASE_PATH:-/app/bot_data/butler.db}
     volumes:
       # 数据持久化：使用命名卷（Portainer 管理）
       - butler-data:/app/bot_data
