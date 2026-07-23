@@ -32,8 +32,8 @@ class AnimeCog(commands.Cog, name="Anime"):
         await interaction.response.defer()
 
         try:
-            anilist = self.bot.services.anilist_service
-            anime = await anilist.search_anime(title)
+            bangumi = self.bot.services.bangumi_service  # 使用 Bangumi
+            anime = await bangumi.search_anime(title)
 
             if not anime:
                 await interaction.followup.send(
@@ -54,8 +54,8 @@ class AnimeCog(commands.Cog, name="Anime"):
         await interaction.response.defer()
 
         try:
-            anilist = self.bot.services.anilist_service
-            animes = await anilist.get_current_season(page=1)
+            bangumi = self.bot.services.bangumi_service  # 使用 Bangumi
+            animes = await bangumi.get_current_season(page=1)
 
             if not animes:
                 await interaction.followup.send("抱歉，获取新番列表失败...")
@@ -74,7 +74,7 @@ class AnimeCog(commands.Cog, name="Anime"):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # TODO(实现): 读取追番列表 → AI 口味分析 → AniList 候选 → 推荐
+            # TODO(实现): 读取追番列表 → AI 口味分析 → Bangumi 候选 → 推荐
             await interaction.followup.send(
                 "AI 漫荒推荐功能尚未实现，敬请期待..."
             )

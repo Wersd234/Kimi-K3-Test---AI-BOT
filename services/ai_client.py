@@ -7,7 +7,7 @@
 - 基于已提供数据的口味分析（漫荒推荐的打分措辞）
 
 严禁让该模型回答任何事实性问题（番剧信息、天气、新闻等），
-真实数据一律走 services/anilist_service.py 与 services/weather_service.py。
+真实数据一律走 services/bangumi_service.py 与 services/weather_service.py。
 """
 
 import logging
@@ -84,8 +84,15 @@ class AIClient:
                 max_tokens=500,
             )
             reply = response.choices[0].message.content.strip()
+
+            # 如果回复为空，返回默认消息
+            if not reply:
+                logger.warning("AI 回复为空，使用默认回复")
+                reply = "唔...我不知道该说什么好呢..."
+
             logger.info("AI 回复生成成功: %d 字符", len(reply))
             return reply
+
         except Exception as exc:
             logger.error("AI 回复生成失败: %s", exc)
             return "抱歉，我现在有点忙，稍后再聊吧..."

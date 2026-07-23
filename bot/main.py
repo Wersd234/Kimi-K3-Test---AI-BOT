@@ -23,32 +23,13 @@ from core.config import Config
 from core.database import Database
 from core.scheduler import ButlerScheduler
 from repositories import init_all as init_repositories
-from services.ai_client import AIClient
-from services.anilist_service import AniListService
-from services.calendar_service import CalendarService
-from services.watchlist_service import WatchlistService
+from services import Services
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-
-class Services:
-    """服务容器：集中管理所有 Service 实例（依赖注入）。"""
-
-    def __init__(self, config: Config) -> None:
-        """初始化所有 Service。
-
-        Args:
-            config: 全局配置。
-        """
-        self.ai_client = AIClient(config)
-        self.anilist_service = AniListService(config)
-        self.calendar_service = CalendarService(config)
-        self.watchlist_service = WatchlistService()
-        logger.info("所有 Service 已初始化")
 
 
 def register_jobs(
@@ -76,7 +57,7 @@ def register_jobs(
     #     args=[bot],
     # )
 
-    # 追番更新轮询：每 30 分钟检查 AniList 新集数
+    # 追番更新轮询：每 30 分钟检查 Bangumi 新集数
     # scheduler.add_job(
     #     services.briefing_facade.poll_anime_updates,
     #     IntervalTrigger(minutes=30),
