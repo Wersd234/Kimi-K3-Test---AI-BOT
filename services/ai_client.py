@@ -8,16 +8,18 @@
 
 严禁让该模型回答任何事实性问题（番剧信息、天气、新闻等），
 真实数据一律走 services/anilist_service.py 与 services/weather_service.py。
+
+TODO(依赖注入): 实现时改为接收 Config 参数，而非读取全局配置。
 """
 
-from openai import AsyncOpenAI
+# TODO(实现): 待实现时改为依赖注入模式
+# from openai import AsyncOpenAI
+# from core.config import Config
 
-from core.config import config
-
-_client = AsyncOpenAI(
-    base_url=config.ai_base_url,
-    api_key=config.ai_api_key,
-)
+# _client = AsyncOpenAI(
+#     base_url=config.ai_base_url,
+#     api_key=config.ai_api_key,
+# )
 
 # 人设提示词（傲娇二次元管家，可按需调整）
 SYSTEM_PROMPT = """你是一位二次元私人管家，性格傲娇但内心温柔体贴。
