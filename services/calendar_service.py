@@ -1,9 +1,12 @@
 """日历服务：日程事件的存储与到期查询。
 
 所有事件一律入库（SQLite），由 core/scheduler 定时扫描到期事件并私信提醒。
+
+TODO(依赖注入): 实现时改为接收 CalendarRepository 参数。
 """
 
-from core.database import get_connection
+# TODO(实现): 待实现时改为依赖注入模式
+# from repositories import CalendarRepository
 
 
 async def add_event(
@@ -23,17 +26,17 @@ async def add_event(
     Returns:
         新事件的 rowid。
     """
-    # TODO(实现): 写入 calendar_events 表
+    # TODO(实现): 调用 CalendarRepository.add()
     raise NotImplementedError
 
 
 async def list_upcoming(user_id: int, limit: int = 10) -> list[dict]:
     """列出用户未来的日程事件。"""
-    # TODO(实现)
+    # TODO(实现): 调用 CalendarRepository.list_upcoming()
     raise NotImplementedError
 
 
 async def pop_due_events(now_iso: str) -> list[dict]:
     """取出所有到点待提醒的事件（供调度器调用，取出后标记已提醒）。"""
-    # TODO(实现)
+    # TODO(实现): 调用 CalendarRepository.get_due_events() + mark_reminded()
     raise NotImplementedError
