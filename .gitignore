@@ -1,0 +1,17 @@
+# 敏感凭证
+.env
+
+# 持久化数据（SQLite 数据库）
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDE / 系统
+.idea/
+.vscode/
+.DS_Store

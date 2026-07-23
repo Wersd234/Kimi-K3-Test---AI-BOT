@@ -1,0 +1,16 @@
+services:
+  butler-bot:
+    build: .
+    container_name: anime-butler-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # 时区强一致性：定时任务 / 日历提醒均以此为准
+      TZ: ${TZ:-Australia/Sydney}
+    volumes:
+      # 数据持久化：SQLite 数据库落盘到宿主机 ./data
+      - ./data:/app/bot_data
+    extra_hosts:
+      # 让容器可以访问宿主机上运行的 LM Studio / Ollama
+      - "host.docker.internal:host-gateway"
