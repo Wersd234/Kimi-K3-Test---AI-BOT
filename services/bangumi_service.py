@@ -177,8 +177,8 @@ class BangumiService:
                 if char_name:
                     characters.append({"name": {"full": char_name}})
 
-        # 更新时间（如果有）
-        air_time = anime.get("air_time", "未知时间")
+        # 更新时间（使用 air_date 字段）
+        air_date = anime.get("air_date", "未知时间")
 
         return {
             "title": {
@@ -192,5 +192,5 @@ class BangumiService:
             "episodes": eps,
             "status": status_text,
             "characters": {"nodes": characters},
-            "air_time": air_time,  # 更新时间
+            "air_time": air_date,  # 使用 air_date 作为播出时间
         }
