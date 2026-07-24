@@ -2,8 +2,8 @@
 
 设计说明：
 - Bangumi 提供中文标题、中文简介、中文角色。
-- AniList 提供精确播出时间（批量一次请求，避免限流）。
-- 两者结合：Bangumi 负责内容，AniList 负责时间。
+- Mikan 提供精确播出时间（中文网站，数据准确）。
+- 两者结合：Bangumi 负责内容，Mikan 负责时间。
 
 API 文档：https://bangumi.github.io/api/
 """
@@ -14,7 +14,7 @@ from typing import Any
 import aiohttp
 
 from core.config import Config
-from services.anilist_service import AniListService
+from services.mikan_service import MikanService
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class BangumiService:
             "User-Agent": "KotoriBot/1.0 (https://github.com/Wersd234/Kimi-K3-Test---AI-BOT)",
             "Accept": "application/json",
         }
-        self._anilist = AniListService(config)  # 用于获取播出时间
+        self._mikan = MikanService(config)  # 用于获取播出时间
         logger.info("Bangumi 客户端已初始化: %s", self._api_url)
 
     async def _request(
@@ -92,10 +92,10 @@ class BangumiService:
             # 转换为统一格式
             normalized = self._normalize_anime(anime)
 
-            # 使用 AniList 获取实际播出时间（用日文标题）
-            title_jp = anime.get("name", "")
-            if title_jp:
-                airing_time = await self._anilist.get_anime_airing_time(title_jp)
+            # 使用 Mikan 获取实际播出时间（用中文标题）
+            title_cn = anime.get("name_cn", anime.get("name", ""))
+            if title_cn:
+                airing_time = await self._mikan.get_anime_airing_time(title_cn)
                 if airing_time:
                     normalized["air_time"] = airing_time
 
@@ -106,24 +106,24 @@ class BangumiService:
             return None
 
     async def get_current_season_by_day(self) -> dict[int, list[dict]]:
-        """获取当前季度新番，按星期几分组（Bangumi 内容 + AniList 时间）。
+        """获取当前季度新番，按星期几分组（Bangumi 内容 + Mikan 时间）。
 
         Returns:
             按星期几分组的新番 dict {0: [...], 1: [...], ..., 6: [...]}
             0=周一, 6=周日
         """
         try:
-            # 1. 先获取 AniList 的整周播出时间表（批量，避免限流）
-            anilist_schedule = await self._anilist.get_weekly_airing_schedule()
+            # 1. 先获取 Mikan 的整周播出时间表（中文网站，数据准确）
+            mikan_schedule = await self._mikan.get_weekly_schedule()
 
             # 2. 获取 Bangumi 的每日放送（中文内容）
             bangumi_result = await self._request("/calendar")
 
             if not bangumi_result:
-                logger.warning("Bangumi 季度查询无结果，使用纯 AniList 数据")
-                return anilist_schedule
+                logger.warning("Bangumi 季度查询无结果，使用纯 Mikan 数据")
+                return mikan_schedule
 
-            # 3. 合并：Bangumi 内容 + AniList 时间
+            # 3. 合并：Bangumi 内容 + Mikan 时间
             animes_by_day = {}
             for day_data in bangumi_result:
                 weekday = day_data.get("weekday", {}).get("id", 0) - 1  # Bangumi weekday id 从 1 开始
@@ -140,66 +140,62 @@ class BangumiService:
                     for anime in sorted_items:
                         normalized = self._normalize_anime(anime)
 
-                        # 尝试从 AniList 匹配播出时间（模糊匹配）
-                        title_jp = anime.get("name", "").strip()
-                        if title_jp and weekday in anilist_schedule:
-                            matched_time = self._fuzzy_match_airing_time(
-                                title_jp, anilist_schedule[weekday]
+                        # 尝试从 Mikan 匹配播出时间（用中文标题匹配）
+                        title_cn = anime.get("name_cn", anime.get("name", "")).strip()
+                        if title_cn and weekday in mikan_schedule:
+                            matched_time = self._fuzzy_match_mikan_time(
+                                title_cn, mikan_schedule[weekday]
                             )
                             if matched_time:
                                 normalized["air_time"] = matched_time
 
                         animes_by_day[weekday].append(normalized)
 
-            logger.info("Bangumi + AniList 季度查询成功: %d 天有新番", len(animes_by_day))
+            logger.info("Bangumi + Mikan 季度查询成功: %d 天有新番", len(animes_by_day))
             return animes_by_day
 
         except Exception as exc:
             logger.error("Bangumi 季度查询失败: %s", exc)
-            # 失败时回退到纯 AniList 数据
-            return await self._anilist.get_weekly_airing_schedule()
+            # 失败时回退到纯 Mikan 数据
+            return await self._mikan.get_weekly_schedule()
 
-    def _fuzzy_match_airing_time(
-        self, title_jp: str, anilist_animes: list[dict]
+    def _fuzzy_match_mikan_time(
+        self, title_cn: str, mikan_animes: list[dict]
     ) -> str | None:
-        """模糊匹配 AniList 播出时间。
+        """模糊匹配 Mikan 播出时间。
 
         匹配策略（按优先级）：
         1. 完全匹配（忽略大小写和空格）
         2. 包含匹配（一个标题包含另一个）
-        3. 相似度匹配（编辑距离 ≤ 3）
 
         Args:
-            title_jp: Bangumi 日文标题。
-            anilist_animes: AniList 同一天的番剧列表。
+            title_cn: Bangumi 中文标题。
+            mikan_animes: Mikan 同一天的番剧列表。
 
         Returns:
             匹配到的播出时间，未匹配返回 None。
         """
-        if not title_jp:
+        if not title_cn:
             return None
 
         # 标准化函数：小写、去空格、去特殊字符
         def normalize(s: str) -> str:
             return "".join(c.lower() for c in s if c.isalnum())
 
-        title_norm = normalize(title_jp)
+        title_norm = normalize(title_cn)
 
-        for anilist_anime in anilist_animes:
-            anilist_title = anilist_anime.get("title", {})
-            romaji = anilist_title.get("romaji", "").strip()
-            native = anilist_title.get("native", "").strip()
+        for mikan_anime in mikan_animes:
+            mikan_title = mikan_anime.get("title", {})
+            mikan_native = mikan_title.get("native", "").strip()
 
             # 策略 1: 完全匹配（忽略大小写和空格）
-            if normalize(romaji) == title_norm or normalize(native) == title_norm:
-                return anilist_anime.get("air_time")
+            if normalize(mikan_native) == title_norm:
+                return mikan_anime.get("air_time")
 
             # 策略 2: 包含匹配
-            if (title_norm in normalize(romaji) or
-                title_norm in normalize(native) or
-                normalize(romaji) in title_norm or
-                normalize(native) in title_norm):
-                return anilist_anime.get("air_time")
+            if (title_norm in normalize(mikan_native) or
+                normalize(mikan_native) in title_norm):
+                return mikan_anime.get("air_time")
 
         return None
 
@@ -262,5 +258,5 @@ class BangumiService:
             "episodes": eps,
             "status": status_text,
             "characters": {"nodes": characters},
-            "air_time": air_date,  # 默认使用 air_date，后续可能被 AniList 覆盖
+            "air_time": air_date,  # 默认使用 air_date，后续可能被 Mikan 覆盖
         }
