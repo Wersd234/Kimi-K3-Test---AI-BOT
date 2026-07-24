@@ -81,6 +81,42 @@ class YucService:
 
         return f"/{year}{season}/"
 
+    def _parse_yuc_time(self, time_text: str) -> str:
+        """解析 Yuc 时间格式，转换为具体播出时间。
+
+        Yuc 时间格式示例：
+        - 「7/5周日深夜」→ 下周日 24:30（即下周一 00:30）
+        - 「7/9周四深夜」→ 下周四 24:30（即下周五 00:30）
+        - 「7/6周日 20:30」→ 下周日 20:30
+
+        Args:
+            time_text: Yuc 原始时间字符串。
+
+        Returns:
+            格式化后的播出时间（如 "24:30" 或 "20:30"）。
+        """
+        if not time_text or time_text == "未知时间":
+            return "未知时间"
+
+        # 匹配「深夜」格式：7/5周日深夜 → 24:30
+        # 匹配「具体时间」格式：7/6周日 20:30 → 20:30
+        import re
+
+        # 提取时间部分（如果有）
+        time_match = re.search(r"(\d{1,2}):(\d{2})", time_text)
+        if time_match:
+            # 已有具体时间（如 20:30）
+            hour = int(time_match.group(1))
+            minute = time_match.group(2)
+            return f"{hour:02d}:{minute}"
+
+        # 如果是「深夜」，默认 24:30
+        if "深夜" in time_text:
+            return "24:30"
+
+        # 其他情况返回原始文本
+        return time_text
+
     async def get_weekly_schedule(self) -> dict[int, list[dict]]:
         """获取本周播出时间表（从 Yuc 当前季度页面）。
 
@@ -129,9 +165,10 @@ class YucService:
                         title_elem = current.find("a")
                         title = title_elem.text.strip() if title_elem else "Unknown"
 
-                        # 提取播出时间
+                        # 提取播出时间并转换为具体时间
                         time_elem = current.find("p", class_="broadcast_r")
                         time_text = time_elem.text.strip() if time_elem else "未知时间"
+                        air_time = self._parse_yuc_time(time_text)
 
                         # 构建动漫信息
                         anime = {
@@ -145,7 +182,7 @@ class YucService:
                             "description": "暂无简介",
                             "episodes": "?",
                             "status": "连载中",
-                            "air_time": time_text,
+                            "air_time": air_time,
                             "characters": {"nodes": []},
                         }
                         result[weekday].append(anime)
@@ -188,8 +225,9 @@ class YucService:
                     time_elem = anime_table.find("p", class_="broadcast_r")
                     if time_elem:
                         time_text = time_elem.text.strip()
-                        logger.info("Yuc 播出时间查询成功: %s → %s", title, time_text)
-                        return time_text
+                        air_time = self._parse_yuc_time(time_text)
+                        logger.info("Yuc 播出时间查询成功: %s → %s", title, air_time)
+                        return air_time
 
             logger.warning("Yuc 未找到番剧: %s", title)
             return None
