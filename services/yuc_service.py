@@ -160,15 +160,19 @@ class YucService:
                 # Yuc 的番剧信息在 day_table 后面的兄弟元素中
                 current = day_table.find_next_sibling()
                 while current and not (current.name == "div" and current.get("class") and "date_" in current.get("class")):
-                    if current.name == "table" and current.get("class") and "type_a_r" in current.get("class"):
+                    # Yuc 的番剧信息在 <div style="float:left"> 中
+                    if current.name == "div" and current.get("style") and "float:left" in current.get("style"):
                         # 提取番剧信息
-                        title_elem = current.find("a")
+                        title_elem = current.find("td", class_="date_title_")
+                        if not title_elem:
+                            title_elem = current.find("td", class_="date_title__")
                         title = title_elem.text.strip() if title_elem else "Unknown"
 
-                        # 提取播出时间并转换为具体时间
-                        time_elem = current.find("p", class_="broadcast_r")
+                        # 提取播出时间（从 <p class="imgtext4">20:30~</p> 中）
+                        time_elem = current.find("p", class_="imgtext4")
                         time_text = time_elem.text.strip() if time_elem else "未知时间"
-                        air_time = self._parse_yuc_time(time_text)
+                        # 去掉末尾的 ~ 符号
+                        air_time = time_text.rstrip("~")
 
                         # 构建动漫信息
                         anime = {
