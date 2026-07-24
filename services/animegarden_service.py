@@ -4,7 +4,7 @@
 - 番剧播出时间查询（Yuc.wiki 数据，时间准确）
 - 与 Bangumi 结合使用（Bangumi 提供中文内容，Anime Garden 提供播出时间）
 
-API 文档：https://github.com/yjl9903/AnimeGarden
+API 文档：https://animes.garden/docs/api
 """
 
 import logging
@@ -27,7 +27,8 @@ class AnimeGardenService:
             config: 全局配置。
         """
         self._config = config
-        self._api_url = "https://api.animegarden.com"
+        # 修正 API 端点：使用 animes.garden 而不是 api.animegarden.com
+        self._api_url = "https://animes.garden"
         self._headers = {
             "User-Agent": "KotoriBot/1.0 (https://github.com/Wersd234/Kimi-K3-Test---AI-BOT)",
             "Accept": "application/json",
@@ -65,8 +66,8 @@ class AnimeGardenService:
             0=周一, 6=周日
         """
         try:
-            # Anime Garden 新番表 API
-            result = await self._request("/v1/schedule")
+            # Anime Garden 新番表 API（根据文档：https://animes.garden/docs/api）
+            result = await self._request("/api/v1/schedule")
 
             if not result or "schedule" not in result:
                 logger.warning("Anime Garden 新番表查询无结果")
@@ -141,7 +142,7 @@ class AnimeGardenService:
         try:
             # Anime Garden 搜索 API
             search_result = await self._request(
-                "/v1/search",
+                "/api/v1/search",
                 {"keyword": title}
             )
 
