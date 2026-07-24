@@ -2,8 +2,8 @@
 
 设计说明：
 - Bangumi 提供中文标题、中文简介、中文角色。
-- Mikan 提供精确播出时间（中文网站，数据准确）。
-- 两者结合：Bangumi 负责内容，Mikan 负责时间。
+- Yuc 提供精确播出时间（中文网站，数据准确）。
+- 两者结合：Bangumi 负责内容，Yuc 负责时间。
 
 API 文档：https://bangumi.github.io/api/
 """
@@ -14,7 +14,7 @@ from typing import Any
 import aiohttp
 
 from core.config import Config
-from services.mikan_service import MikanService
+from services.yuc_service import YucService
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class BangumiService:
             "User-Agent": "KotoriBot/1.0 (https://github.com/Wersd234/Kimi-K3-Test---AI-BOT)",
             "Accept": "application/json",
         }
-        self._mikan = MikanService(config)  # 用于获取播出时间
+        self._yuc = YucService(config)  # 用于获取播出时间
         logger.info("Bangumi 客户端已初始化: %s", self._api_url)
 
     async def _request(
@@ -92,10 +92,10 @@ class BangumiService:
             # 转换为统一格式
             normalized = self._normalize_anime(anime)
 
-            # 使用 Mikan 获取实际播出时间（用中文标题）
+            # 使用 Yuc 获取实际播出时间（用中文标题）
             title_cn = anime.get("name_cn", anime.get("name", ""))
             if title_cn:
-                airing_time = await self._mikan.get_anime_airing_time(title_cn)
+                airing_time = await self._yuc.get_anime_airing_time(title_cn)
                 if airing_time:
                     normalized["air_time"] = airing_time
 
@@ -106,24 +106,24 @@ class BangumiService:
             return None
 
     async def get_current_season_by_day(self) -> dict[int, list[dict]]:
-        """获取当前季度新番，按星期几分组（Bangumi 内容 + Mikan 时间）。
+        """获取当前季度新番，按星期几分组（Bangumi 内容 + Yuc 时间）。
 
         Returns:
             按星期几分组的新番 dict {0: [...], 1: [...], ..., 6: [...]}
             0=周一, 6=周日
         """
         try:
-            # 1. 先获取 Mikan 的整周播出时间表（中文网站，数据准确）
-            mikan_schedule = await self._mikan.get_weekly_schedule()
+            # 1. 先获取 Yuc 的整周播出时间表（中文网站，数据准确）
+            yuc_schedule = await self._yuc.get_weekly_schedule()
 
             # 2. 获取 Bangumi 的每日放送（中文内容）
             bangumi_result = await self._request("/calendar")
 
             if not bangumi_result:
-                logger.warning("Bangumi 季度查询无结果，使用纯 Mikan 数据")
-                return mikan_schedule
+                logger.warning("Bangumi 季度查询无结果，使用纯 Yuc 数据")
+                return yuc_schedule
 
-            # 3. 合并：Bangumi 内容 + Mikan 时间
+            # 3. 合并：Bangumi 内容 + Yuc 时间
             animes_by_day = {}
             for day_data in bangumi_result:
                 weekday = day_data.get("weekday", {}).get("id", 0) - 1  # Bangumi weekday id 从 1 开始
@@ -140,29 +140,29 @@ class BangumiService:
                     for anime in sorted_items:
                         normalized = self._normalize_anime(anime)
 
-                        # 尝试从 Mikan 匹配播出时间（用中文标题匹配）
+                        # 尝试从 Yuc 匹配播出时间（用中文标题匹配）
                         title_cn = anime.get("name_cn", anime.get("name", "")).strip()
-                        if title_cn and weekday in mikan_schedule:
-                            matched_time = self._fuzzy_match_mikan_time(
-                                title_cn, mikan_schedule[weekday]
+                        if title_cn and weekday in yuc_schedule:
+                            matched_time = self._fuzzy_match_yuc_time(
+                                title_cn, yuc_schedule[weekday]
                             )
                             if matched_time:
                                 normalized["air_time"] = matched_time
 
                         animes_by_day[weekday].append(normalized)
 
-            logger.info("Bangumi + Mikan 季度查询成功: %d 天有新番", len(animes_by_day))
+            logger.info("Bangumi + Yuc 季度查询成功: %d 天有新番", len(animes_by_day))
             return animes_by_day
 
         except Exception as exc:
             logger.error("Bangumi 季度查询失败: %s", exc)
-            # 失败时回退到纯 Mikan 数据
-            return await self._mikan.get_weekly_schedule()
+            # 失败时回退到纯 Yuc 数据
+            return await self._yuc.get_weekly_schedule()
 
-    def _fuzzy_match_mikan_time(
-        self, title_cn: str, mikan_animes: list[dict]
+    def _fuzzy_match_yuc_time(
+        self, title_cn: str, yuc_animes: list[dict]
     ) -> str | None:
-        """模糊匹配 Mikan 播出时间。
+        """模糊匹配 Yuc 播出时间。
 
         匹配策略（按优先级）：
         1. 完全匹配（忽略大小写和空格）
@@ -170,7 +170,7 @@ class BangumiService:
 
         Args:
             title_cn: Bangumi 中文标题。
-            mikan_animes: Mikan 同一天的番剧列表。
+            yuc_animes: Yuc 同一天的番剧列表。
 
         Returns:
             匹配到的播出时间，未匹配返回 None。
@@ -184,18 +184,18 @@ class BangumiService:
 
         title_norm = normalize(title_cn)
 
-        for mikan_anime in mikan_animes:
-            mikan_title = mikan_anime.get("title", {})
-            mikan_native = mikan_title.get("native", "").strip()
+        for yuc_anime in yuc_animes:
+            yuc_title = yuc_anime.get("title", {})
+            yuc_native = yuc_title.get("native", "").strip()
 
             # 策略 1: 完全匹配（忽略大小写和空格）
-            if normalize(mikan_native) == title_norm:
-                return mikan_anime.get("air_time")
+            if normalize(yuc_native) == title_norm:
+                return yuc_anime.get("air_time")
 
             # 策略 2: 包含匹配
-            if (title_norm in normalize(mikan_native) or
-                normalize(mikan_native) in title_norm):
-                return mikan_anime.get("air_time")
+            if (title_norm in normalize(yuc_native) or
+                normalize(yuc_native) in title_norm):
+                return yuc_anime.get("air_time")
 
         return None
 
@@ -258,5 +258,5 @@ class BangumiService:
             "episodes": eps,
             "status": status_text,
             "characters": {"nodes": characters},
-            "air_time": air_date,  # 默认使用 air_date，后续可能被 Mikan 覆盖
+            "air_time": air_date,  # 默认使用 air_date，后续可能被 Yuc 覆盖
         }
