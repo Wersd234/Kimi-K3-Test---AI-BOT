@@ -28,9 +28,12 @@ class DandanplayService:
         """
         self._config = config
         self._api_url = "https://api.dandanplay.net/api/v2"
+        # 弹弹play API 需要更严格的 User-Agent 和 Accept
         self._headers = {
-            "User-Agent": "KotoriBot/1.0 (https://github.com/Wersd234/Kimi-K3-Test---AI-BOT)",
-            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Referer": "https://www.dandanplay.com/",
         }
         logger.info("弹弹play 客户端已初始化: %s", self._api_url)
 
