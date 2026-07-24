@@ -148,6 +148,9 @@ class BangumiService:
                             )
                             if matched_time:
                                 normalized["air_time"] = matched_time
+                            else:
+                                # 如果 Yuc 没有匹配到，显示「未知时间」而不是 Bangumi 的日期
+                                normalized["air_time"] = "未知时间"
 
                         animes_by_day[weekday].append(normalized)
 
