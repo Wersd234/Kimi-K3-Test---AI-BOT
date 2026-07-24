@@ -133,6 +133,25 @@ class YucService:
             # 查找每日放送表
             # Yuc 使用 <div><table class="date_"><tr><td class="date2">周一 (月)</td></tr></table></div>
             day_tables = soup.find_all("div", class_=lambda x: x and "date_" in x)
+            logger.info("Yuc 找到 %d 个日期表格", len(day_tables))
+
+            # 如果没有找到，尝试其他方法
+            if not day_tables:
+                logger.warning("Yuc 未找到日期表格，尝试其他方法")
+                # 尝试直接查找所有包含「周」的表格
+                day_tables = soup.find_all("table", class_=lambda x: x and "date_" in x)
+                logger.info("Yuc 备用方法找到 %d 个日期表格", len(day_tables))
+
+            # 如果还是没有，尝试查找所有包含「周」的 div
+            if not day_tables:
+                logger.warning("Yuc 备用方法也未找到，尝试查找所有 div")
+                all_divs = soup.find_all("div")
+                logger.info("Yuc 总共找到 %d 个 div", len(all_divs))
+                # 查找包含「周」的 div
+                day_divs = [div for div in all_divs if "周" in div.text]
+                logger.info("Yuc 找到 %d 个包含「周」的 div", len(day_divs))
+                for div in day_divs[:5]:  # 只显示前 5 个
+                    logger.info("  示例: %s", div.text.strip()[:50])
 
             result: dict[int, list[dict]] = {i: [] for i in range(7)}
             weekday_map = {
@@ -163,16 +182,20 @@ class YucService:
                     # Yuc 的番剧信息在 <div style="float:left"> 中
                     if current.name == "div" and current.get("style") and "float:left" in current.get("style"):
                         # 提取番剧信息
-                        title_elem = current.find("td", class_="date_title_")
-                        if not title_elem:
-                            title_elem = current.find("td", class_="date_title__")
+                        # 标题在 <td class="date_title_"> 或 <td class="date_title__"> 中
+                        title_elem = current.find("td", class_=lambda x: x and "date_title" in x)
                         title = title_elem.text.strip() if title_elem else "Unknown"
 
                         # 提取播出时间（从 <p class="imgtext4">20:30~</p> 中）
                         time_elem = current.find("p", class_="imgtext4")
-                        time_text = time_elem.text.strip() if time_elem else "未知时间"
-                        # 去掉末尾的 ~ 符号
-                        air_time = time_text.rstrip("~")
+                        if time_elem:
+                            time_text = time_elem.text.strip()
+                            # 去掉末尾的 ~ 符号
+                            air_time = time_text.rstrip("~")
+                            logger.info("Yuc 提取成功: %s → %s", title, air_time)
+                        else:
+                            air_time = "未知时间"
+                            logger.warning("Yuc 未找到时间元素（p.imgtext4）: %s", title)
 
                         # 构建动漫信息
                         anime = {
@@ -194,6 +217,8 @@ class YucService:
                     current = current.find_next_sibling()
 
             logger.info("Yuc 周播出表获取成功: %d 天有新番", len(result))
+            for day, animes in result.items():
+                logger.info("  周%s: %d 部番", "一二三四五六日"[day], len(animes))
             return result
 
         except Exception as exc:
